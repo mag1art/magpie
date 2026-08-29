@@ -3,7 +3,7 @@
 # Model selection and API endpoint are set via environment variables (see docker-compose.yml).
 set -e
 
-MODEL_NAME="${MODEL_NAME:-Qwen/Qwen3.5-4B}"
+MODEL_NAME="${MODEL_NAME:-deepseek-v4-flash:0731-cloud}"
 API_URL="${API_URL:-http://host.docker.internal:8000}"
 API_KEY="${API_KEY:-}"
 TOTAL_PROMPTS="${TOTAL_PROMPTS:-1000}"

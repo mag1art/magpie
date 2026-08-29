@@ -52,5 +52,19 @@
       "assistant"
     ],
     "pre_query_template": "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\n"
+  },
+  "deepseek-v4-flash:0731-cloud": {
+    "model_name": "deepseek-v4-flash:0731-cloud",
+    "stop_tokens": [
+      "<｜end▁of▁sentence｜>",
+      "<｜User｜>",
+      "<｜Assistant｜>"
+    ],
+    "stop_token_ids": [],
+    "stop_tokens_assistant": [
+      "Assistant",
+      "assistant"
+    ],
+    "pre_query_template": "<｜User｜>"
   }
 }

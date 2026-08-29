@@ -35,7 +35,7 @@ Point the scripts at any OpenAI-compatible server that exposes `/v1/completions`
 ```bash
 # 1. Generate instructions
 python exp/gen_ins.py \
-    --model_name Qwen/Qwen3.5-4B \
+    --model_name deepseek-v4-flash:0731-cloud \
     --api_url http://localhost:8000/v1/completions \
     --api_key "" \
     --total_prompts 1000 \
@@ -45,13 +45,13 @@ python exp/gen_ins.py \
 
 # 2. Generate responses for the instructions
 python exp/gen_res.py \
-    --model_name Qwen/Qwen3.5-4B \
+    --model_name deepseek-v4-flash:0731-cloud \
     --api_url http://localhost:8000/v1/chat/completions \
     --api_key "" \
     --batch_size 200 \
     --top_p 1 \
     --temperature 0 \
-    --input_file data/Magpie_Qwen3.5-4B_1000_<timestamp>_ins.json
+    --input_file data/Magpie_deepseek-v4-flash:0731-cloud_1000_<timestamp>_ins.json
 ```
 
 Output is written to `data/`:
@@ -76,7 +76,7 @@ Configuration is done via environment variables (see `docker-compose.yml`):
 |----------|---------|-------------|
 | `API_URL` | `http://host.docker.internal:8000` | Base URL of the OpenAI-compatible server |
 | `API_KEY` | *(empty)* | API key (optional for local servers) |
-| `MODEL_NAME` | `Qwen/Qwen3.5-4B` | Model id (config lookup + sent to the API) |
+| `MODEL_NAME` | `deepseek-v4-flash:0731-cloud` | Model id (config lookup + sent to the API) |
 | `TOTAL_PROMPTS` | `1000` | Number of instructions to generate |
 | `INS_TOPP` / `INS_TEMP` | `1` / `0.7` | Instruction sampling params |
 | `RES_TOPP` / `RES_TEMP` | `1` / `0` | Response sampling params |
@@ -86,11 +86,12 @@ Generated data is written to `./data` on the host.
 
 ## Model Configuration
 
-This fork ships with configs for three Qwen3 reasoning models (all use the same Qwen3 chat template):
+This fork ships with configs for three Qwen3 reasoning models (all use the same Qwen3 chat template) plus a DeepSeek cloud model:
 
 - `Qwen/Qwen3.5-4B`
 - `Qwen/Qwen3.6-35B-A3B`
 - `Qwen/Qwen3.8-27B`
+- `deepseek-v4-flash:0731-cloud` (default)
 
 Each model needs an entry in [`configs/model_configs.json`](configs/model_configs.json) with its chat template and stop tokens. Example for Qwen3.5-4B:
 

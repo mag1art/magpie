@@ -26,7 +26,7 @@ services:
       API_URL: http://host.docker.internal:8000
       API_KEY: ""
       # --- Model selection ---
-      MODEL_NAME: Qwen/Qwen3.5-4B
+      MODEL_NAME: deepseek-v4-flash:0731-cloud
       # --- Generation settings ---
       TOTAL_PROMPTS: "1000"
       INS_TOPP: "1"
