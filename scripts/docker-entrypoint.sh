@@ -28,8 +28,7 @@ cd /app/magpie/scripts
 
 echo "[entrypoint] Generating instructions via ${API_URL}/v1/completions ..."
 python ../exp/gen_ins.py \
-    --engine api \
-    --model_path "$MODEL_NAME" \
+    --model_name "$MODEL_NAME" \
     --api_url "${API_URL}/v1/completions" \
     --api_key "$API_KEY" \
     --total_prompts "$TOTAL_PROMPTS" \
@@ -41,15 +40,13 @@ python ../exp/gen_ins.py \
 
 echo "[entrypoint] Generating responses via ${API_URL}/v1/chat/completions ..."
 python ../exp/gen_res.py \
-    --engine api \
-    --model_path "$MODEL_NAME" \
+    --model_name "$MODEL_NAME" \
     --api_url "${API_URL}/v1/chat/completions" \
     --api_key "$API_KEY" \
     --batch_size "$BATCH_SIZE" \
     --top_p "$RES_TOPP" \
     --temperature "$RES_TEMP" \
     --repetition_penalty 1 \
-    --input_file "${job_path}/Magpie_${MODEL_NAME##*/}_${TOTAL_PROMPTS}_${timestamp}_ins.json" \
-    --use_tokenizer_template
+    --input_file "${job_path}/Magpie_${MODEL_NAME##*/}_${TOTAL_PROMPTS}_${timestamp}_ins.json"
 
 echo "[entrypoint] Done. Data written to ${job_path}"

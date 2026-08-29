@@ -2,7 +2,10 @@ import json
 import requests
 import uuid
 from time import sleep
-from fastchat.model import get_conversation_template
+try:
+    from fastchat.model import get_conversation_template
+except ImportError:
+    get_conversation_template = None
 
 # File I/O utilities
 def load_jsonl_to_list(jsonl_file_path):

@@ -20,9 +20,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/bin/python3 /usr/local/bin/python
 
-# Python deps: torch (CPU, for the unconditional import) + transformers (tokenizer) + misc
-RUN pip install torch --index-url https://download.pytorch.org/whl/cpu \
-    && pip install transformers sentencepiece numpy tqdm requests
+# Python deps: requests (API calls) + tqdm + misc
+RUN pip install --no-cache-dir requests tqdm numpy
 
 # Copy the magpie codebase
 WORKDIR /app
