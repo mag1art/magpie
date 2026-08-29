@@ -26,7 +26,7 @@ cd magpie
 pip install -r requirements.txt
 ```
 
-Only three dependencies are required: `requests`, `tqdm`, `numpy`.
+Only two dependencies are required: `requests` and `tqdm`.
 
 ## Quick Start
 

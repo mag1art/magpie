@@ -20,8 +20,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/bin/python3 /usr/local/bin/python
 
-# Python deps: requests (API calls) + tqdm + misc
-RUN pip install --no-cache-dir requests tqdm numpy
+# Python deps: requests (API calls) + tqdm
+RUN pip install --no-cache-dir requests tqdm
 
 # Copy the magpie codebase
 WORKDIR /app

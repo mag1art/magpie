@@ -69,8 +69,9 @@ if args.repetition_penalty != 1.0:
 
 
 # Process a batch of data using the API
+# HTTP calls are I/O-bound, so a thread pool is more efficient than processes.
 def process_batch_with_api(batch):
-    with concurrent.futures.ProcessPoolExecutor() as executor:
+    with concurrent.futures.ThreadPoolExecutor() as executor:
         future_to_item = {
             executor.submit(
                 make_api_request_with_retry,
@@ -86,7 +87,7 @@ def process_batch_with_api(batch):
             item = future_to_item[future]
             try:
                 api_response = future.result()
-                item['response'] = str_utils.extract_final_answer(api_response, MODEL_NAME)
+                item['response'] = str_utils.extract_final_answer(api_response, MODEL_NAME) or ""
                 item['gen_response_configs'] = {
                     "temperature": args.temperature,
                     "top_p": args.top_p,

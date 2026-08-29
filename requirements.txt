@@ -2,4 +2,3 @@
 # Only needs an HTTP client + progress bar. No local model runtime (vLLM/llama.cpp/torch) required.
 requests
 tqdm
-numpy

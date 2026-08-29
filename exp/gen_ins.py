@@ -3,8 +3,8 @@ import sys
 import argparse
 import json
 import time
+import math
 import random
-import numpy as np
 import requests
 from time import sleep
 from tqdm import tqdm
@@ -81,10 +81,9 @@ def main():
             raise ValueError("Either total prompts or repeat should be specified.")
         args.total_prompts = args.repeat * args.n
     else:
-        args.repeat = int(np.ceil(args.total_prompts / args.n))
+        args.repeat = int(math.ceil(args.total_prompts / args.n))
 
     if args.seed is not None:
-        np.random.seed(args.seed)
         random.seed(args.seed)
 
     # Create output file / folder
