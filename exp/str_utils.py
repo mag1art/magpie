@@ -85,16 +85,21 @@ def extract_final_answer(text, model_path=""):
     """
     if not text:
         return text
-    # Only strip reasoning markers for Qwen3-style reasoning models.
-    if "qwen3" not in model_path.lower():
+    # Only strip reasoning markers for reasoning models (Qwen3 / DeepSeek style).
+    model = model_path.lower()
+    if "qwen3" not in model and "deepseek" not in model:
         return text.strip()
     text = text.strip()
-    # Take everything after the last ' response' marker (the actual answer).
-    for marker in (" response\n\n", " response\n", " response"):
-        idx = text.rfind(marker)
-        if idx != -1:
-            text = text[idx + len(marker):]
-            break
+    # A reasoning marker is a standalone ' response' token that starts a new line
+    # (end of the reasoning block) and is followed by newline(s) or EOS. Requiring
+    # the trailing newline/EOS avoids matching the word 'response' inside the text
+    # (e.g. "no response marker").
+    m = re.search(r"(?:^|\n) response(?:\n+|$)", text)
+    if not m:
+        # Fallback: reasoning block may not end with a newline before the marker.
+        m = re.search(r" response(?:\n+|$)", text)
+    if m:
+        text = text[m.end():]
     # If the model answered without a ' response' marker, drop a leading ' thinking'.
     if text.startswith("thinking\n"):
         text = text[len("thinking\n"):].lstrip("\n")

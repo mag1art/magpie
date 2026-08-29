@@ -9,6 +9,9 @@ from tqdm import tqdm
 from utils import load_dataset_from_file, save_dataset, make_api_request_with_retry
 import str_utils
 
+# Resolve the config path relative to this file so the script works from any CWD.
+CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'configs', 'model_configs.json')
+
 ################
 # Configurations
 ################
@@ -45,8 +48,13 @@ CHECKPOINT_EVERY = args.checkpoint_every
 SAVED_FILE = f"{INPUT_FILE_NAME[:INPUT_FILE_NAME.rfind('.')]}_res.json"
 
 # Obtain config from configs/model_configs.json
-with open("../configs/model_configs.json", "r") as f:
+with open(CONFIG_PATH, "r") as f:
     model_configs = json.load(f)
+    if args.model_name not in model_configs:
+        raise ValueError(
+            f"Model '{args.model_name}' not found in {CONFIG_PATH}. "
+            f"Available models: {list(model_configs.keys())}"
+        )
     model_config = model_configs[args.model_name]
     stop_tokens = model_config["stop_tokens"]
 

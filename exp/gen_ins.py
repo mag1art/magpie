@@ -11,6 +11,9 @@ from tqdm import tqdm
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import str_utils
 
+# Resolve the config path relative to this file so the script works from any CWD.
+CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'configs', 'model_configs.json')
+
 
 def make_completion_request(prompt, api_params, api_endpoint, api_headers, max_retries=5):
     """Send a raw-completion request to an OpenAI-compatible /v1/completions endpoint."""
@@ -51,12 +54,13 @@ def get_args():
                              "Shorter/truncated instructions are dropped.")
 
     # Generation Settings
-    parser.add_argument("--early_stopping", type=bool, default=True, help="Stop generation when the \\n is generated.")
+    parser.add_argument("--early_stopping", action="store_true", default=True, help="Stop generation when the \\n is generated.")
     parser.add_argument("--disable_early_stopping", action="store_false", dest="early_stopping", help="Disable early stopping.")
     parser.add_argument("--system_prompt", action="store_true", help="Enable system prompt for extracting the input.")
     parser.add_argument("--sanitize", action="store_true", help="Sanitize the generated instructions. Only available for Gemma and Llama-3 models.")
     parser.add_argument("--control_tasks", type=str, default=None, choices=[None, "translation", "code", "math"], help="Control tasks for the generation.")
-    parser.add_argument("--shuffle", type=bool, default=True, help="Shuffle the outputs returned by the API.")
+    parser.add_argument("--shuffle", action="store_true", default=True, help="Shuffle the outputs returned by the API.")
+    parser.add_argument("--no_shuffle", action="store_false", dest="shuffle", help="Do not shuffle the outputs returned by the API.")
 
     # System Settings
     parser.add_argument("--checkpoint_every", type=int, default=100, help="Save checkpoint every n repeats.")
@@ -94,16 +98,28 @@ def main():
         output_dir = f"{args.output_folder}/{output_filename}"
     else:
         output_dir = f"{args.output_folder}/{args.job_name}/{output_filename}"
+        os.makedirs(os.path.dirname(output_dir), exist_ok=True)
 
     # Obtain config from configs/model_configs.json
-    with open("../configs/model_configs.json", "r", encoding="utf-8") as f:
+    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         model_configs = json.load(f)
+        if args.model_name not in model_configs:
+            raise ValueError(
+                f"Model '{args.model_name}' not found in {CONFIG_PATH}. "
+                f"Available models: {list(model_configs.keys())}"
+            )
         model_config = model_configs[args.model_name]
         if args.control_tasks:
-            pre_query_template = model_config[f"pre_query_template_{args.control_tasks}"]
+            key = f"pre_query_template_{args.control_tasks}"
+            if key not in model_config:
+                raise ValueError(f"Config for '{args.model_name}' has no '{key}'. Available keys: {list(model_config.keys())}")
+            pre_query_template = model_config[key]
             print(f"Control task: {args.control_tasks}")
         elif args.system_prompt:
-            pre_query_template = model_config["pre_query_template_with_system_prompt"]
+            key = "pre_query_template_with_system_prompt"
+            if key not in model_config:
+                raise ValueError(f"Config for '{args.model_name}' has no '{key}'. Available keys: {list(model_config.keys())}")
+            pre_query_template = model_config[key]
             print("System prompt enabled. Warning: The system prompt may degrade the performance.")
         else:
             pre_query_template = model_config["pre_query_template"]

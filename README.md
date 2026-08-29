@@ -107,9 +107,17 @@ Each model needs an entry in [`configs/model_configs.json`](configs/model_config
 
 To add a new model, add its config and pass its id via `--model_name`.
 
-## Reasoning Models (Qwen3)
+## Reasoning Models (Qwen3 / DeepSeek)
 
-Qwen3-style reasoning models emit a ` thinking...response` block before the final answer. The scripts automatically strip this via `extract_final_answer` (in `exp/str_utils.py`), returning only the final answer. Detection is based on `"qwen3"` appearing in the model id.
+Qwen3- and DeepSeek-style reasoning models emit a ` thinking...response` block before the final answer. The scripts automatically strip this via `extract_final_answer` (in `exp/str_utils.py`), returning only the final answer. Detection is based on `"qwen3"` or `"deepseek"` appearing in the model id. The marker is matched as a standalone token (followed by a newline or end-of-text), so the word "response" inside the text is never mistaken for a reasoning marker.
+
+## Tests
+
+```bash
+python tests/test_str_utils.py
+```
+
+Covers reasoning-marker stripping for Qwen3/DeepSeek, non-reasoning models, and the "response"-as-plain-word edge case.
 
 ## Project Structure
 
@@ -123,6 +131,8 @@ configs/
   model_configs.json  # chat templates + stop tokens per model
 scripts/
   docker-entrypoint.sh  # container entrypoint (gen_ins + gen_res)
+tests/
+  test_str_utils.py     # reasoning-marker stripping tests
 Dockerfile
 docker-compose.yml
 ```
