@@ -2,7 +2,13 @@ import json
 import requests
 import uuid
 from time import sleep
-from fastchat.model import get_conversation_template
+
+try:
+    from fastchat.model import get_conversation_template
+except ImportError:
+    # fastchat is only needed for the vLLM/HF chat-template path.
+    # The llama.cpp path uses tokenizer.apply_chat_template instead.
+    get_conversation_template = None
 
 # File I/O utilities
 def load_jsonl_to_list(jsonl_file_path):
@@ -32,7 +38,7 @@ def save_dataset(data, filename, convert_to_jsonl=False):
                 file.write(json.dumps(obj) + '\n')
     else:
         with open(filename, 'w') as file:
-            json.dump(data, file, indent=2)
+            json.dump(data, file, indent=2, ensure_ascii=False)
 
 # API utilities
 
