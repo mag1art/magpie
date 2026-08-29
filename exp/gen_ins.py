@@ -6,12 +6,35 @@ import json
 import time
 import random
 import numpy as np
+import requests
+from time import sleep
 from tqdm import tqdm
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from vllm import LLM, SamplingParams
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from str_utils import de_md_logits_processor_for_llama3_1, flaming_tokens
 import str_utils
+
+try:
+    from vllm import LLM, SamplingParams
+except ImportError:
+    LLM = None
+    SamplingParams = None
+
+
+def make_completion_request(prompt, api_params, api_endpoint, api_headers, max_retries=5):
+    """Send a raw-completion request to an OpenAI-compatible /v1/completions endpoint."""
+    payload = api_params.copy()
+    payload['prompt'] = prompt
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(api_endpoint, json=payload, headers=api_headers)
+            response.raise_for_status()
+            return [c['text'] for c in response.json()['choices']]
+        except requests.RequestException as e:
+            print(f"Attempt {attempt + 1} failed: {str(e)}")
+            sleep(2 ** attempt)
+    print("All retry attempts failed.")
+    return []
 
 ################
 # Configurations
@@ -21,6 +44,9 @@ def get_args():
     parser = argparse.ArgumentParser(description="Instruction Generation Manager.")
     parser.add_argument("--model_path", type=str, default="meta-llama/Meta-Llama-3-8B-Instruct",
                         help="We will support more models in the future.")
+    parser.add_argument("--model_name", type=str, default=None,
+                        help="HF model id used for config lookup / reasoning detection. "
+                             "Defaults to model_path. Set this when the API model id differs.")
     
     # Generation Parameters
     parser.add_argument("--temperature", type=float, default=1.0)
@@ -43,11 +69,14 @@ def get_args():
     parser.add_argument("--skip_special_tokens", type=bool, default=True)
 
     # System Settings
-    parser.add_argument('--engine', default="vllm", type=str, choices=["vllm", "hf"])
+    parser.add_argument('--engine', default="vllm", type=str, choices=["vllm", "hf", "api"])
     parser.add_argument("--device", type=str, default="0")
     parser.add_argument("--dtype", type=str, default="bfloat16", choices=["float16", "bfloat16"])
     parser.add_argument("--tensor_parallel_size", type=int, default=1, help="Number of GPUs to use for tensor parallelism. Only used for Llama 70B models.")
     parser.add_argument("--gpu_memory_utilization", type=float, default=0.95)
+    parser.add_argument("--api_url", type=str, default="http://localhost:8000/v1/completions",
+                        help="OpenAI-compatible completions endpoint (raw prompt continuation).")
+    parser.add_argument("--api_key", type=str, default=None, help="API key (optional for local servers).")
     parser.add_argument("--swap_space", type=float, default=2.0)
     parser.add_argument("--checkpoint_every", type=int, default=100, help="Save checkpoint every n repeats.")
     parser.add_argument("--output_folder", type=str, default="../data")
@@ -116,10 +145,14 @@ def main():
         )
     
     
+    # Default model_name to model_path
+    if args.model_name is None:
+        args.model_name = args.model_path
+
     # Obtain config from configs/model_configs.json
     with open("../configs/model_configs.json", "r", encoding="utf-8") as f:
         model_configs = json.load(f)
-        model_config = model_configs[args.model_path]
+        model_config = model_configs[args.model_name]
         if args.control_tasks:
             pre_query_template = model_config[f"pre_query_template_{args.control_tasks}"]
             print("Control task: {args.control_tasks}")
@@ -165,6 +198,21 @@ def main():
         stop_token_ids=stop_token_ids,
         logits_processors=[logits_processor] if logits_processor else None
     )
+
+    # API setup (OpenAI-compatible completions endpoint for raw prompt continuation)
+    if args.engine == "api":
+        API_ENDPOINT = args.api_url
+        API_HEADERS = {}
+        if args.api_key:
+            API_HEADERS["Authorization"] = f"Bearer {args.api_key}"
+        API_PARAMS = {
+            "model": args.model_name,
+            "max_tokens": args.max_tokens,
+            "temperature": args.temperature,
+            "top_p": args.top_p,
+            "n": args.n,
+            "stop": stop_tokens,
+        }
     
     ################
     # Generate outputs
@@ -198,13 +246,20 @@ def main():
                 for stop_token in stop_tokens:
                     if stop_token in completion:
                         output_list[i] = completion[:completion.index(stop_token)]
+
+        elif args.engine == "api":
+            output_list = make_completion_request(pre_query_template, API_PARAMS, API_ENDPOINT, API_HEADERS)
+            if args.shuffle:
+                random.shuffle(output_list)
                                                  
         # Save outputs
         for i, completion in enumerate(output_list):
             if args.engine == "vllm":
                 instruction = completion.text.strip()
-            elif args.engine == "hf":
+            elif args.engine in ("hf", "api"):
                 instruction = completion.strip()
+            # Strip reasoning markers (thinking/response) for Qwen3-style models.
+            instruction = str_utils.extract_final_answer(instruction, args.model_name)
     
             if args.sanitize:
                 sanitized_instruction, class_num = str_utils.instruction_post_process(instruction, args.model_path)

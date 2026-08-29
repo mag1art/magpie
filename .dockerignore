@@ -1,0 +1,10 @@
+# Exclude generated data and large artifacts from the Docker build context
+data/
+data_po/
+data_sft/
+models/
+*.gguf
+.git/
+__pycache__/
+*.pyc
+*.log

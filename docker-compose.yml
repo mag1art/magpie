@@ -1,0 +1,40 @@
+# Magpie + OpenAI-compatible API — docker compose
+#
+# Usage:
+#   docker compose up --build          # run with defaults
+#   docker compose run --rm magpie-api bash   # interactive shell for debugging
+#
+# The container does NOT run a model. It calls an external OpenAI-compatible
+# API (vLLM / llama.cpp server) that aggregates GPUs across one or more machines.
+#
+# Set API_URL / API_KEY (and model settings) via environment variables or a .env file.
+#   API_URL=http://<server>:<port> docker compose up --build
+#
+# Generated data is written to ./data (host) -> /app/magpie/data (container).
+
+services:
+  magpie-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: magpie-api:latest
+    container_name: magpie-api
+    environment:
+      # --- API endpoint ---
+      # host.docker.internal works on Docker Desktop / recent Linux Docker.
+      # For a remote server, use its IP or hostname instead.
+      API_URL: http://host.docker.internal:8000
+      API_KEY: ""
+      # --- Model selection ---
+      MODEL_NAME: Qwen/Qwen3.5-4B
+      # --- Generation settings ---
+      TOTAL_PROMPTS: "1000"
+      INS_TOPP: "1"
+      INS_TEMP: "0.7"
+      RES_TOPP: "1"
+      RES_TEMP: "0"
+      N: "200"
+      BATCH_SIZE: "200"
+    volumes:
+      - ./data:/app/magpie/data               # generated data (host dir)
+    restart: "no"

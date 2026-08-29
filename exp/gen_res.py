@@ -8,8 +8,14 @@ import concurrent.futures
 from time import sleep
 from tqdm import tqdm
 from utils import load_dataset_from_file, save_dataset, make_api_request_with_retry, get_conversation_template
-from vllm import LLM, SamplingParams
 from transformers import AutoTokenizer, AutoModelForCausalLM
+import str_utils
+
+try:
+    from vllm import LLM, SamplingParams
+except ImportError:
+    LLM = None
+    SamplingParams = None
 
 ################
 # Configurations
@@ -19,15 +25,19 @@ def get_args():
     parser = argparse.ArgumentParser(description="Response Generation Manager.")
     parser.add_argument("--model_path", type=str, default="meta-llama/Meta-Llama-3-8B-Instruct",
                         help="We will support more models in the future.")
+    parser.add_argument("--model_name", type=str, default=None,
+                        help="HF model id used for config lookup / reasoning detection. "
+                             "Defaults to model_path. Set this when the API model id differs.")
     parser.add_argument("--input_file", type=str, default=None, help="Input dataset file name")
     parser.add_argument("--batch_size", type=int, default=128, help="Number of samples per batch")
     parser.add_argument("--checkpoint_every", type=int, default=20, help="Save checkpoint every n batches")
-    parser.add_argument("--api_url", type=str, default="https://api.together.xyz/v1/chat/completions", help="API URL")
-    parser.add_argument("--api_key", type=str, default=None, help="Together API Key")
+    parser.add_argument("--api_url", type=str, default="http://localhost:8000/v1/chat/completions",
+                        help="OpenAI-compatible chat completions endpoint (e.g. vLLM / llama.cpp server).")
+    parser.add_argument("--api_key", type=str, default=None, help="API key (optional for local servers).")
     parser.add_argument("--offline", action="store_true", help="Use local engine")
 
     # Generation Parameters
-    parser.add_argument('--engine', default="vllm", type=str, choices=["vllm", "hf", "together"])
+    parser.add_argument('--engine', default="vllm", type=str, choices=["vllm", "hf", "together", "api"])
     parser.add_argument("--device", type=str, default="0")
     parser.add_argument("--dtype", type=str, default="bfloat16", choices=["float16", "bfloat16"])
     parser.add_argument("--tensor_parallel_size", type=int, default=1, help="Number of GPUs to use for tensor parallelism. Only used for Llama 70B models.")
@@ -49,7 +59,9 @@ if args.input_file is None:
     raise ValueError("Please specify the input file path.")
 
 # Constants for the local vllm engine
-MODEL_NAME = args.model_path
+if args.model_name is None:
+    args.model_name = args.model_path
+MODEL_NAME = args.model_name
 INPUT_FILE_NAME = args.input_file 
 BATCH_SIZE = args.batch_size
 CHECKPOINT_FILE = f"{INPUT_FILE_NAME[:INPUT_FILE_NAME.rfind('.')]}_res_checkpoint.json"
@@ -59,33 +71,40 @@ SAVED_FILE = f"{INPUT_FILE_NAME[:INPUT_FILE_NAME.rfind('.')]}_res.json"
 # Obtain config from configs/model_configs.json
 with open("../configs/model_configs.json", "r") as f:
     model_configs = json.load(f)
-    model_config = model_configs[args.model_path]
+    model_config = model_configs[args.model_name]
     stop_tokens = model_config["stop_tokens"]
     stop_token_ids = model_config["stop_token_ids"]
 
-# API Setups
-if args.engine == "together":
-    # Change name for API (Together Naming Convention)
-    if MODEL_NAME == "meta-llama/Meta-Llama-3-8B-Instruct":
-        api_model_name = "meta-llama/Llama-3-8b-chat-hf"
-    elif MODEL_NAME == "meta-llama/Meta-Llama-3-70B-Instruct":
-        api_model_name = "meta-llama/Llama-3-70b-chat-hf"
+# API Setups (OpenAI-compatible chat completions endpoint)
+if args.engine in ("together", "api"):
+    if args.engine == "together":
+        # Change name for API (Together Naming Convention)
+        if MODEL_NAME == "meta-llama/Meta-Llama-3-8B-Instruct":
+            api_model_name = "meta-llama/Llama-3-8b-chat-hf"
+        elif MODEL_NAME == "meta-llama/Meta-Llama-3-70B-Instruct":
+            api_model_name = "meta-llama/Llama-3-70b-chat-hf"
+        else:
+            api_model_name = MODEL_NAME
     else:
+        # Generic OpenAI-compatible API: use the model id the server expects.
         api_model_name = MODEL_NAME
 
     # Constants for the API
     API_ENDPOINT = args.api_url
-    API_HEADERS = {
-        "Authorization": args.api_key,
-    }
+    API_HEADERS = {}
+    if args.api_key:
+        API_HEADERS["Authorization"] = f"Bearer {args.api_key}"
     API_PARAMS = {
         "model": api_model_name,
         "max_tokens": args.max_tokens,
         "temperature": args.temperature,
         "top_p": args.top_p,
-        "repetition_penalty": args.repetition_penalty,
         "stop": stop_tokens
     }
+    # repetition_penalty is not a standard OpenAI param; only send it when != 1.0
+    # (vLLM accepts it, but some OpenAI-compatible servers reject unknown params).
+    if args.repetition_penalty != 1.0:
+        API_PARAMS["repetition_penalty"] = args.repetition_penalty
 
 # Process a batch of data using the API
 def process_batch_with_api(batch):
@@ -106,7 +125,7 @@ def process_batch_with_api(batch):
             item = future_to_item[future]
             try:
                 api_response = future.result()
-                item['response'] = api_response.strip()
+                item['response'] = str_utils.extract_final_answer(api_response, MODEL_NAME)
                 item['gen_response_configs'] = {
                     "temperature": args.temperature,
                     "top_p": args.top_p,
@@ -201,7 +220,7 @@ def generate_and_update(dataset, llm=None, params=None, tokenizer=None):
         start_idx = i * BATCH_SIZE + last_checkpoint_idx
         end_idx = min((i + 1) * BATCH_SIZE + last_checkpoint_idx, len(dataset))
         batch = dataset[start_idx:end_idx]
-        if args.engine == "together":
+        if args.engine in ("together", "api"):
             batch = process_batch_with_api(batch)
         else:
             batch = process_batch(batch, llm, params, tokenizer)
@@ -219,8 +238,8 @@ def main():
     # Load instructions from the input file
     dataset = load_dataset_from_file(INPUT_FILE_NAME)
     
-    if args.engine == "together":
-        print("Start together API engine...")
+    if args.engine in ("together", "api"):
+        print("Start OpenAI-compatible API engine...")
         llm = None
         params = None
         tokenizer = None
