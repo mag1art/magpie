@@ -1,5 +1,34 @@
 import re
 
+
+def extract_final_answer(text, model_path=""):
+    """Extract the final answer from a reasoning model's output.
+
+    Qwen3-style reasoning models produce outputs of the form:
+        ' thinking\n<reasoning> response\n\n<final answer>'
+    This strips the leading ' thinking' marker and everything up to and
+    including the final ' response' marker, returning only the final answer.
+    For non-reasoning models (or when no reasoning markers are present) the
+    text is returned unchanged.
+    """
+    if not text:
+        return text
+    # Only strip reasoning markers for Qwen3-style reasoning models.
+    if "qwen3" not in model_path.lower():
+        return text.strip()
+    text = text.strip()
+    # Take everything after the last ' response' marker (the actual answer).
+    for marker in (" response\n\n", " response\n", " response"):
+        idx = text.rfind(marker)
+        if idx != -1:
+            text = text[idx + len(marker):]
+            break
+    # If the model answered without a ' response' marker, drop a leading ' thinking'.
+    if text.startswith("thinking\n"):
+        text = text[len("thinking\n"):].lstrip("\n")
+    return text.strip()
+
+
 def input_difficulty_rating(input):
     user_message = f'''
 # Instruction 

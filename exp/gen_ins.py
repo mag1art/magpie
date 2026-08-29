@@ -8,7 +8,11 @@ import random
 import numpy as np
 from tqdm import tqdm
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from vllm import LLM, SamplingParams
+try:
+    from vllm import LLM, SamplingParams
+except ImportError:
+    LLM = None
+    SamplingParams = None
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from str_utils import de_md_logits_processor_for_llama3_1, flaming_tokens
 import str_utils
@@ -21,6 +25,9 @@ def get_args():
     parser = argparse.ArgumentParser(description="Instruction Generation Manager.")
     parser.add_argument("--model_path", type=str, default="meta-llama/Meta-Llama-3-8B-Instruct",
                         help="We will support more models in the future.")
+    parser.add_argument("--model_name", type=str, default=None,
+                        help="HF model id used for config lookup / reasoning detection. "
+                             "Defaults to model_path. Set this when model_path is a local GGUF file.")
     
     # Generation Parameters
     parser.add_argument("--temperature", type=float, default=1.0)
@@ -30,6 +37,9 @@ def get_args():
     parser.add_argument("--total_prompts", type=int, default=1000, help="Total number of prompts to generate. If specified, repeat will be ignored.")
     parser.add_argument("--max_tokens", type=int, default=2048)
     parser.add_argument("--max_model_len", type=int, default=4096)
+    parser.add_argument("--min_instruction_length", type=int, default=10,
+                        help="Minimum length (chars) for a generated instruction. "
+                             "Shorter/truncated instructions (e.g. '请帮我生成一个') are dropped.")
 
     # Generation Settings
     parser.add_argument("--early_stopping", type=bool, default=True, help="Stop generation when the \n is generated.")
@@ -43,10 +53,11 @@ def get_args():
     parser.add_argument("--skip_special_tokens", type=bool, default=True)
 
     # System Settings
-    parser.add_argument('--engine', default="vllm", type=str, choices=["vllm", "hf"])
+    parser.add_argument('--engine', default="vllm", type=str, choices=["vllm", "hf", "llamacpp"])
     parser.add_argument("--device", type=str, default="0")
     parser.add_argument("--dtype", type=str, default="bfloat16", choices=["float16", "bfloat16"])
     parser.add_argument("--tensor_parallel_size", type=int, default=1, help="Number of GPUs to use for tensor parallelism. Only used for Llama 70B models.")
+    parser.add_argument("--n_gpu_layers", type=int, default=-1, help="Number of GPU layers for llama.cpp (-1 = offload all layers to GPU).")
     parser.add_argument("--gpu_memory_utilization", type=float, default=0.95)
     parser.add_argument("--swap_space", type=float, default=2.0)
     parser.add_argument("--checkpoint_every", type=int, default=100, help="Save checkpoint every n repeats.")
@@ -61,6 +72,10 @@ def get_args():
 def main():
     args = get_args()
     print(f"Instruction Generation Manager. Arguments: {args}") # For logging
+
+    # model_name defaults to model_path (used for config lookup / reasoning detection)
+    if args.model_name is None:
+        args.model_name = args.model_path
 
     # Raise error if sanitization is requested for unsupported models
     if args.sanitize:
@@ -84,7 +99,7 @@ def main():
         torch.cuda.manual_seed_all(args.seed)
     
     # Create output file / folder
-    output_filename = f"Magpie_{args.model_path.split('/')[-1]}_{args.total_prompts}_{args.timestamp}_ins.json"
+    output_filename = f"Magpie_{args.model_name.split('/')[-1]}_{args.total_prompts}_{args.timestamp}_ins.json"
     if not args.job_name:
         if not os.path.exists(args.output_folder):
             os.makedirs(args.output_folder)
@@ -114,12 +129,17 @@ def main():
             device_map={'':torch.cuda.current_device()},
             torch_dtype=torch.bfloat16 if args.dtype == "bfloat16" else torch.float16
         )
+    elif args.engine == "llamacpp":
+        # Load the model via llama.cpp (GGUF)
+        from llama_cpp import Llama
+        llm = Llama(model_path=args.model_path, n_ctx=args.max_model_len,
+                    n_gpu_layers=args.n_gpu_layers, verbose=False)
     
     
     # Obtain config from configs/model_configs.json
     with open("../configs/model_configs.json", "r", encoding="utf-8") as f:
         model_configs = json.load(f)
-        model_config = model_configs[args.model_path]
+        model_config = model_configs[args.model_name]
         if args.control_tasks:
             pre_query_template = model_config[f"pre_query_template_{args.control_tasks}"]
             print("Control task: {args.control_tasks}")
@@ -145,7 +165,7 @@ def main():
     if args.logits_processor and args.flaming_tokens:
         raise ValueError("Cannot enable both logits processor and flaming tokens")
     
-    if args.logits_processor and "llama-3.1" in args.model_path.lower():
+    if args.logits_processor and "llama-3.1" in args.model_name.lower():
         logits_processor = de_md_logits_processor_for_llama3_1
         print(f"Logits processor applied: {logits_processor}")
     elif args.flaming_tokens:
@@ -154,17 +174,19 @@ def main():
     else:
         logits_processor = None
         
-    # Define sampling parameters
-    sampling_params = SamplingParams(
-        n=args.n,
-        temperature=args.temperature,
-        top_p=args.top_p,
-        max_tokens=args.max_tokens,
-        skip_special_tokens=args.skip_special_tokens,
-        stop=stop_tokens,
-        stop_token_ids=stop_token_ids,
-        logits_processors=[logits_processor] if logits_processor else None
-    )
+    # Define sampling parameters (only used by the vllm engine)
+    sampling_params = None
+    if args.engine == "vllm":
+        sampling_params = SamplingParams(
+            n=args.n,
+            temperature=args.temperature,
+            top_p=args.top_p,
+            max_tokens=args.max_tokens,
+            skip_special_tokens=args.skip_special_tokens,
+            stop=stop_tokens,
+            stop_token_ids=stop_token_ids,
+            logits_processors=[logits_processor] if logits_processor else None
+        )
     
     ################
     # Generate outputs
@@ -198,13 +220,29 @@ def main():
                 for stop_token in stop_tokens:
                     if stop_token in completion:
                         output_list[i] = completion[:completion.index(stop_token)]
+
+        elif args.engine == "llamacpp":
+            output_list = []
+            for _ in range(args.n):
+                out = llm(pre_query_template, max_tokens=args.max_tokens,
+                          temperature=args.temperature, top_p=args.top_p,
+                          stop=stop_tokens, echo=False)
+                output_list.append(out['choices'][0]['text'])
+            if args.shuffle:
+                random.shuffle(output_list)
                                                  
         # Save outputs
         for i, completion in enumerate(output_list):
             if args.engine == "vllm":
-                instruction = completion.text.strip()
-            elif args.engine == "hf":
-                instruction = completion.strip()
+                instruction = completion.text
+            elif args.engine in ("hf", "llamacpp"):
+                instruction = completion
+            # Strip reasoning markers (thinking/response) for Qwen3-style models.
+            instruction = str_utils.extract_final_answer(instruction, args.model_name)
+
+            # Drop truncated / too-short instructions (e.g. "请帮我生成一个").
+            if len(instruction) < args.min_instruction_length:
+                continue
     
             if args.sanitize:
                 sanitized_instruction, class_num = str_utils.instruction_post_process(instruction, args.model_path)
@@ -219,7 +257,7 @@ def main():
                     "gen_input_configs": {
                         "temperature": args.temperature,
                         "top_p": args.top_p,
-                        "input_generator": f"{args.model_path}",
+                        "input_generator": f"{args.model_name}",
                         "seed": args.seed,
                     },
                     "gen_response_configs": None,
@@ -234,7 +272,7 @@ def main():
                     "gen_input_configs": {
                         "temperature": args.temperature,
                         "top_p": args.top_p,
-                        "input_generator": f"{args.model_path}",
+                        "input_generator": f"{args.model_name}",
                         "seed": args.seed,
                     },
                     "gen_response_configs": None,
@@ -244,12 +282,12 @@ def main():
         # Save the checkpoints every args.checkpoint_every rounds
         if rounds % args.checkpoint_every == 0:
             with open(output_dir, "w") as f:
-                json.dump(results, f, indent=2)
+                json.dump(results, f, indent=2, ensure_ascii=False)
             print(f"Checkpoint saved. Total prompts: {len(results)}")
     
     # Save the final results
     with open(output_dir, "w") as f:
-        json.dump(results, f, indent=2)
+        json.dump(results, f, indent=2, ensure_ascii=False)
     
     print(f"Instruction generated from {args.model_path}. Total prompts: {len(results)}")
 

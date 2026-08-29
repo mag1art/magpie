@@ -1,0 +1,11 @@
+# Exclude large / non-essential files from the Docker build context
+.git
+.gitignore
+data/
+models/
+*.gguf
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+*.ipynb
+figs/

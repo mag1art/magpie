@@ -8,7 +8,12 @@ import concurrent.futures
 from time import sleep
 from tqdm import tqdm
 from utils import load_dataset_from_file, save_dataset, make_api_request_with_retry, get_conversation_template
-from vllm import LLM, SamplingParams
+import str_utils
+try:
+    from vllm import LLM, SamplingParams
+except ImportError:
+    LLM = None
+    SamplingParams = None
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 ################
@@ -19,6 +24,9 @@ def get_args():
     parser = argparse.ArgumentParser(description="Response Generation Manager.")
     parser.add_argument("--model_path", type=str, default="meta-llama/Meta-Llama-3-8B-Instruct",
                         help="We will support more models in the future.")
+    parser.add_argument("--model_name", type=str, default=None,
+                        help="HF model id used for config lookup / reasoning detection. "
+                             "Defaults to model_path. Set this when model_path is a local GGUF file.")
     parser.add_argument("--input_file", type=str, default=None, help="Input dataset file name")
     parser.add_argument("--batch_size", type=int, default=128, help="Number of samples per batch")
     parser.add_argument("--checkpoint_every", type=int, default=20, help="Save checkpoint every n batches")
@@ -27,10 +35,11 @@ def get_args():
     parser.add_argument("--offline", action="store_true", help="Use local engine")
 
     # Generation Parameters
-    parser.add_argument('--engine', default="vllm", type=str, choices=["vllm", "hf", "together"])
+    parser.add_argument('--engine', default="vllm", type=str, choices=["vllm", "hf", "together", "llamacpp"])
     parser.add_argument("--device", type=str, default="0")
     parser.add_argument("--dtype", type=str, default="bfloat16", choices=["float16", "bfloat16"])
     parser.add_argument("--tensor_parallel_size", type=int, default=1, help="Number of GPUs to use for tensor parallelism. Only used for Llama 70B models.")
+    parser.add_argument("--n_gpu_layers", type=int, default=-1, help="Number of GPU layers for llama.cpp (-1 = offload all layers to GPU).")
     parser.add_argument("--gpu_memory_utilization", type=float, default=0.95)
     parser.add_argument("--max_tokens", type=int, default=4096)
     parser.add_argument("--max_model_len", type=int, default=4096)
@@ -49,7 +58,9 @@ if args.input_file is None:
     raise ValueError("Please specify the input file path.")
 
 # Constants for the local vllm engine
-MODEL_NAME = args.model_path
+if args.model_name is None:
+    args.model_name = args.model_path
+MODEL_NAME = args.model_name
 INPUT_FILE_NAME = args.input_file 
 BATCH_SIZE = args.batch_size
 CHECKPOINT_FILE = f"{INPUT_FILE_NAME[:INPUT_FILE_NAME.rfind('.')]}_res_checkpoint.json"
@@ -59,7 +70,7 @@ SAVED_FILE = f"{INPUT_FILE_NAME[:INPUT_FILE_NAME.rfind('.')]}_res.json"
 # Obtain config from configs/model_configs.json
 with open("../configs/model_configs.json", "r") as f:
     model_configs = json.load(f)
-    model_config = model_configs[args.model_path]
+    model_config = model_configs[args.model_name]
     stop_tokens = model_config["stop_tokens"]
     stop_token_ids = model_config["stop_token_ids"]
 
@@ -106,7 +117,7 @@ def process_batch_with_api(batch):
             item = future_to_item[future]
             try:
                 api_response = future.result()
-                item['response'] = api_response.strip()
+                item['response'] = str_utils.extract_final_answer(api_response, MODEL_NAME)
                 item['gen_response_configs'] = {
                     "temperature": args.temperature,
                     "top_p": args.top_p,
@@ -155,12 +166,19 @@ def process_batch(batch, llm, params, tokenizer=None):
             for stop_token in stop_tokens:
                 if stop_token in completion:
                     outputs[i] = completion[:completion.index(stop_token)]
+    elif args.engine == "llamacpp":
+        outputs = []
+        for prompt in prompts:
+            out = llm(prompt, max_tokens=args.max_tokens, temperature=args.temperature,
+                      top_p=args.top_p, repeat_penalty=args.repetition_penalty,
+                      stop=stop_tokens, echo=False)
+            outputs.append(out['choices'][0]['text'])
 
     for i, item in enumerate(batch):
         if args.engine == "vllm":
-            item['response'] = outputs[i].outputs[0].text.strip()
-        elif args.engine == "hf":
-            item['response'] = outputs[i].strip()
+            item['response'] = str_utils.extract_final_answer(outputs[i].outputs[0].text, MODEL_NAME)
+        elif args.engine in ("hf", "llamacpp"):
+            item['response'] = str_utils.extract_final_answer(outputs[i], MODEL_NAME)
         item['gen_response_configs'] = {
             "prompt": prompts[i],
             "temperature": args.temperature,
@@ -253,6 +271,14 @@ def main():
             torch_dtype=torch.bfloat16 if args.dtype == "bfloat16" else torch.float16
         )
         tokenizer = AutoTokenizer.from_pretrained(args.model_path)
+    elif args.engine == "llamacpp":
+        print("Start llama.cpp engine...")
+        from llama_cpp import Llama
+        llm = Llama(model_path=args.model_path, n_ctx=args.max_model_len,
+                    n_gpu_layers=args.n_gpu_layers, verbose=False)
+        params = None
+        # Tokenizer is only used to build the chat-template prompt string.
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     else:
         raise ValueError("Invalid engine type.")
 
