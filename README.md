@@ -86,6 +86,12 @@ Generated data is written to `./data` on the host.
 
 ## Model Configuration
 
+This fork ships with configs for three Qwen3 reasoning models (all use the same Qwen3 chat template):
+
+- `Qwen/Qwen3.5-4B`
+- `Qwen/Qwen3.6-35B-A3B`
+- `Qwen/Qwen3.8-27B`
+
 Each model needs an entry in [`configs/model_configs.json`](configs/model_configs.json) with its chat template and stop tokens. Example for Qwen3.5-4B:
 
 ```json
