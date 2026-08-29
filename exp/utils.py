@@ -1,14 +1,7 @@
 import json
 import requests
-import uuid
 from time import sleep
 
-try:
-    from fastchat.model import get_conversation_template
-except ImportError:
-    # fastchat is only needed for the vLLM/HF chat-template path.
-    # The llama.cpp path uses tokenizer.apply_chat_template instead.
-    get_conversation_template = None
 
 # File I/O utilities
 def load_jsonl_to_list(jsonl_file_path):
@@ -19,9 +12,10 @@ def load_jsonl_to_list(jsonl_file_path):
             data_list.append(json_obj)
     return data_list
 
+
 # Load dataset
 def load_dataset_from_file(filename):
-    #if the file is json
+    # if the file is json
     if filename.endswith('.json'):
         with open(filename, 'r') as file:
             return json.load(file)
@@ -29,6 +23,7 @@ def load_dataset_from_file(filename):
         return load_jsonl_to_list(filename)
     else:
         raise ValueError("Invalid file format. Please provide a .json or .jsonl file.")
+
 
 # Save dataset
 def save_dataset(data, filename, convert_to_jsonl=False):
@@ -39,6 +34,7 @@ def save_dataset(data, filename, convert_to_jsonl=False):
     else:
         with open(filename, 'w') as file:
             json.dump(data, file, indent=2, ensure_ascii=False)
+
 
 # API utilities
 
@@ -55,40 +51,6 @@ def make_api_request_with_retry(message, api_params, api_endpoint, api_headers, 
         except requests.RequestException as e:
             print(f"Attempt {attempt + 1} failed: {str(e)}")
             sleep(2 ** attempt)  # Exponential back-off
-    
+
     print("All retry attempts failed.")
     return None
-
-
-# Template utilities
-def apply_template(model_name):
-    if "llama-3" in model_name.lower():
-        conv = get_conversation_template("llama-3")
-    elif "llama3" in model_name.lower():
-        conv = get_conversation_template("llama-3")
-    elif "gemma" in model_name.lower():
-        conv = get_conversation_template("gemma")
-    elif "qwen" in model_name.lower():
-        conv = get_conversation_template("qwen-7b-chat")
-    elif "zephyr" in model_name.lower():
-        conv = get_conversation_template("zephyr")
-    elif "llama-2" in model_name.lower():
-        conv = get_conversation_template("llama-2")
-    elif "tulu" in model_name.lower():
-        conv = get_conversation_template("tulu")
-    elif "mixtral" in model_name.lower() or "mistral" in model_name.lower():
-        conv = get_conversation_template("mistral")
-    elif "yi" in model_name.lower() and "chat" in model_name.lower():
-        conv = get_conversation_template("Yi-34b-chat")
-    elif "vicuna" in model_name.lower():
-        conv = get_conversation_template("vicuna_v1.1")
-    else:
-        raise ValueError(f"ERROR: model_name {model_name} not supported for applying templates!")
-
-    return conv
-
-
-# UUID
-def generate_uuid(name):
-    namespace = uuid.NAMESPACE_DNS
-    return str(uuid.uuid5(namespace, name))

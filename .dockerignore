@@ -1,11 +1,10 @@
-# Exclude large / non-essential files from the Docker build context
-.git
-.gitignore
+# Exclude generated data and large artifacts from the Docker build context
 data/
+data_po/
+data_sft/
 models/
 *.gguf
+.git/
 __pycache__/
 *.pyc
-.ipynb_checkpoints/
-*.ipynb
-figs/
+*.log

@@ -1,44 +1,4 @@
---extra-index-url https://flashinfer.ai/whl/cu124/torch2.4/
-# LLM
-# flash-attn[--no-build-isolation]
-# NOTE: Qwen3.5/3.6 MoE multimodal (Qwen3_5MoeForConditionalGeneration) requires a
-# recent vLLM. vllm==0.6.5 does NOT support it. Install a recent version, e.g.:
-#   pip install -U vllm
-# and adjust torch/flashinfer to match the installed vLLM build.
-vllm>=0.9.0
-# llama.cpp bindings (used by the GGUF scripts, e.g. magpie-qwen3.6-35b-a3b-gguf.sh).
-# For GPU offload install a CUDA build. Blackwell GPUs (RTX 50-series, sm_120) need CUDA 12.8+,
-# e.g. the cu130 wheel:
-#   pip install https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.35-cu130/llama_cpp_python-0.3.35-py3-none-manylinux_2_35_x86_64.whl
-llama-cpp-python
-transformers
-sentence-transformers
-sentencepiece
-trl
-peft
-datasets
-accelerate
-bitsandbytes
-autoawq
-ray
-flashinfer
-
-# Cloud API & Chat
-git+https://github.com/lm-sys/FastChat.git
-tenacity
-boto3
-openai
-google-generativeai
-anthropic
-together
-
-# Widgets & Visualization
-matplotlib
-wandb
-ipywidgets
-ipykernel
-
-# Utils
-lingua-language-detector
-faiss-gpu
-ml_collections
+# Magpie — OpenAI-compatible API generation
+# Only needs an HTTP client + progress bar. No local model runtime (vLLM/llama.cpp/torch) required.
+requests
+tqdm

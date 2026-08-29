@@ -1,43 +1,40 @@
-# Magpie + llama.cpp (GGUF) — docker compose
+# Magpie + OpenAI-compatible API — docker compose
 #
 # Usage:
-#   docker compose up --build          # run with defaults (Qwen3.6-35B-A3B Q4_K_M)
-#   docker compose run --rm magpie-gguf bash   # interactive shell for debugging
+#   docker compose up --build          # run with defaults
+#   docker compose run --rm magpie-api bash   # interactive shell for debugging
 #
-# Model selection: edit the environment variables below (or override on the CLI):
-#   docker compose run --rm -e GGUF_FILE=Qwen3.6-35B-A3B-UD-Q4_K_S.gguf magpie-gguf
+# The container does NOT run a model. It calls an external OpenAI-compatible
+# API (vLLM / llama.cpp server) that aggregates GPUs across one or more machines.
 #
-# The GGUF file is expected in ./models (host) -> /app/magpie/models (container).
-# If the file is missing, the script downloads it automatically.
+# Set API_URL / API_KEY (and model settings) via environment variables or a .env file.
+#   API_URL=http://<server>:<port> docker compose up --build
+#
 # Generated data is written to ./data (host) -> /app/magpie/data (container).
 
 services:
-  magpie-gguf:
+  magpie-api:
     build:
       context: .
       dockerfile: Dockerfile
-    image: magpie-llamacpp:latest
-    container_name: magpie-gguf
+    image: magpie-api:latest
+    container_name: magpie-api
     environment:
+      # --- API endpoint ---
+      # host.docker.internal works on Docker Desktop / recent Linux Docker.
+      # For a remote server, use its IP or hostname instead.
+      API_URL: http://host.docker.internal:8000
+      API_KEY: ""
       # --- Model selection ---
-      MODEL_NAME: Qwen/Qwen3.5-4B              # HF id (config lookup / reasoning detection)
-      GGUF_REPO: unsloth/Qwen3.5-4B-GGUF       # HF repo hosting the GGUF
-      GGUF_FILE: Qwen3.5-4B-Q4_K_M.gguf
+      MODEL_NAME: deepseek-v4-flash:0731-cloud
       # --- Generation settings ---
       TOTAL_PROMPTS: "1000"
       INS_TOPP: "1"
       INS_TEMP: "0.7"
       RES_TOPP: "1"
       RES_TEMP: "0"
-      N_GPU_LAYERS: "-1"                      # -1 = offload all layers to GPU
+      N: "200"
+      BATCH_SIZE: "200"
     volumes:
-      - ./models:/app/magpie/models           # GGUF files (host dir)
       - ./data:/app/magpie/data               # generated data (host dir)
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
     restart: "no"
